@@ -1,11 +1,11 @@
-# EVSE Solar and Free Power Charging Controller For Autel MAxicharger - Complete Setup Guide
+# EVSE Solar and Free Power Charging Controller For Autel Maxicharger - Complete Setup Guide
 
 ## Overview
 
 This blueprint creates an intelligent EVSE (Electric Vehicle Supply Equipment) charging system that automatically:
 - **Tracks charging sessions** and logs start/stop events
-- **Optimizes solar charging** using excess solar power with configurable thresholds
-- **Maximizes charging during free power hours** (configurable time period)
+- **Optimises solar charging** using excess solar power with configurable thresholds
+- **Maximises charging during free power hours** (configurable time period)
 - **Prevents grid import** during solar charging with adjustable power buffer
 - **Provides mobile notifications** for important events
 
