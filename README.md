@@ -18,7 +18,7 @@ This blueprint creates an intelligent EVSE (Electric Vehicle Supply Equipment) c
 - **Mobile device** with Home Assistant app for notifications
 
 ## Install in Home Assistant
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A//raw.githubusercontent.com/mavnz72/ha-blueprint-autel-ocpp/main/blueprint/EVSE_Solar_and_Free_Power_Charging_Controller.yaml)
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/mavnz72/ha-blueprint-autel-ocpp/blob/main/Blueprint/EVSE_Solar_and_Free_Power_Charging_Controller.yaml)
 
 ### Required Entities
 Before using this blueprint, you need the following entities in your Home Assistant:
