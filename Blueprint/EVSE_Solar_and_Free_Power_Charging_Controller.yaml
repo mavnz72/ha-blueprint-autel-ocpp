@@ -1,366 +1,455 @@
 blueprint:
-  name: EVSE Solar and Free Power Charging Controller
-  description: |
-    Complete EVSE charging system with solar optimization and free power hour support.
-    Includes automatic session tracking, solar charging with hysteresis, and maximum 
-    charging during free power periods.
+  name: Solar Excess EV Charging (Dynamic)
+  description: >-
+    Charge EV with dynamic rate adjustment based on available solar power.
+    Automatically starts, stops, and adjusts charging rates to maximize solar usage
+    while maintaining grid export buffer. Includes free power hour feature.
   domain: automation
   input:
-    evse_device:
-      name: EVSE Device
-      description: Your EVSE switch device
+    # Entity inputs
+    charger_status_entity:
+      name: Charger Status Entity
+      description: Entity that reports the charger connector status
       selector:
-        device:
-          integration: "switch"
-    evse_entity:
-      name: EVSE Switch Entity
-      description: The switch entity for your EVSE
+        entity:
+          domain: sensor
+    
+    power_export_entity:
+      name: Power Export Entity
+      description: Entity that reports current power export (positive) or import (negative) in Watts
+      selector:
+        entity:
+          domain: sensor
+    
+    charger_power_entity:
+      name: Charger Power Entity
+      description: Entity that reports current charger power consumption in kW
+      selector:
+        entity:
+          domain: sensor
+    
+    charge_control_switch:
+      name: Charge Control Switch
+      description: Switch to enable/disable automatic charging
       selector:
         entity:
           domain: switch
-    charger_status_entity:
-      name: Charger Status Entity
-      description: Entity that reports charger connector status
+    
+    charger_transaction_id:
+      name: Charger Transaction ID
+      description: Entity that provides the current charging transaction ID
       selector:
         entity:
           domain: sensor
-    charger_transaction_id_entity:
-      name: Charger Transaction ID Entity
-      description: Entity that reports the current transaction ID
+    
+    solar_elevation_entity:
+      name: Solar Elevation Entity
+      description: Entity that reports sun elevation (charging only when sun is above horizon)
       selector:
         entity:
           domain: sensor
-    charger_power_entity:
-      name: Charger Power Entity
-      description: Entity that reports charger power consumption
+    
+    solar_variance_entity:
+      name: Solar Export Variance Entity
+      description: Entity that reports solar export variance for stability checking
       selector:
         entity:
           domain: sensor
-    grid_power_entity:
-      name: Grid Power Entity
-      description: Entity that reports grid import/export power (negative = export)
+    
+    # Configuration inputs
+    min_evse_rate:
+      name: Minimum EVSE Rate
+      description: Minimum charging rate in Watts
+      default: 1400
       selector:
-        entity:
-          domain: sensor
-    sun_elevation_entity:
-      name: Sun Elevation Entity
-      description: Entity that reports sun elevation angle
-      selector:
-        entity:
-          domain: sensor
-    session_active_boolean:
-      name: Charging Session Active Boolean
-      description: Input boolean to track if charging session is active
-      selector:
-        entity:
-          domain: input_boolean
-    charge_timer_boolean:
-      name: Charge Timer Activation Boolean
-      description: Input boolean to activate timed charging
-      selector:
-        entity:
-          domain: input_boolean
-    charge_timer_number:
-      name: Charge Timer Hours
-      description: Input number for hours to charge
-      selector:
-        entity:
-          domain: input_number
-    mobile_notify_service:
-      name: Mobile Notification Service
-      description: Mobile app notification service (e.g., mobile_app_your_device)
-      selector:
-        text:
-    free_power_start_time:
-      name: Free Power Start Time
-      description: When free power period starts
-      default: "16:00:00"
-      selector:
-        time:
-    free_power_end_time:
-      name: Free Power End Time
-      description: When free power period ends
-      default: "17:00:00"
-      selector:
-        time:
-    solar_start_threshold:
-      name: Solar Start Threshold (W)
-      description: Minimum export power to start solar charging
+        number:
+          min: 1000
+          max: 3000
+          step: 100
+          unit_of_measurement: W
+    
+    start_threshold:
+      name: Start Threshold
+      description: Minimum solar power needed to start charging in Watts
       default: 1500
       selector:
         number:
           min: 500
           max: 3000
           step: 100
-    solar_stop_threshold:
-      name: Solar Stop Threshold (W)
-      description: Minimum export power to continue solar charging
-      default: 1000
+          unit_of_measurement: W
+    
+    stop_threshold:
+      name: Stop Threshold
+      description: Stop charging if available solar drops below this value in Watts
+      default: 300
       selector:
         number:
-          min: 500
-          max: 3000
-          step: 100
-    solar_buffer:
-      name: Solar Buffer (W)
-      description: Power buffer to prevent grid import
+          min: 0
+          max: 1000
+          step: 50
+          unit_of_measurement: W
+    
+    rate_increment:
+      name: Rate Increment
+      description: Charging rate adjustment step size in Watts
+      default: 100
+      selector:
+        number:
+          min: 50
+          max: 500
+          step: 50
+          unit_of_measurement: W
+    
+    target_buffer:
+      name: Target Buffer
+      description: Target export buffer to maintain in Watts
       default: 100
       selector:
         number:
           min: 0
           max: 500
           step: 50
-    max_charging_amps:
-      name: Maximum Charging Amps
-      description: Maximum charging current
+          unit_of_measurement: W
+    
+    max_evse_rate:
+      name: Maximum EVSE Rate
+      description: Maximum charging rate in Watts
+      default: 7400
+      selector:
+        number:
+          min: 3000
+          max: 22000
+          step: 100
+          unit_of_measurement: W
+    
+    stability_grace_period:
+      name: Stability Grace Period
+      description: Wait time for power stability in seconds
+      default: 120
+      selector:
+        number:
+          min: 30
+          max: 300
+          step: 30
+          unit_of_measurement: s
+    
+    import_grace_period:
+      name: Import Grace Period
+      description: Grace period for grid import tolerance in seconds
+      default: 360
+      selector:
+        number:
+          min: 60
+          max: 600
+          step: 60
+          unit_of_measurement: s
+    
+    variance_threshold:
+      name: Variance Threshold
+      description: Solar export variance threshold for stability checking
+      default: 500
+      selector:
+        number:
+          min: 100
+          max: 1000
+          step: 100
+          unit_of_measurement: W
+    
+    # Free power hour settings
+    enable_free_power_hour:
+      name: Enable Free Power Hour
+      description: Enable charging at maximum rate during specified time window
+      default: true
+      selector:
+        boolean:
+    
+    free_power_start:
+      name: Free Power Hour Start
+      description: Start time for free power hour charging
+      default: "16:00:00"
+      selector:
+        time:
+    
+    free_power_end:
+      name: Free Power Hour End
+      description: End time for free power hour charging
+      default: "17:00:00"
+      selector:
+        time:
+    
+    free_power_rate:
+      name: Free Power Hour Rate
+      description: Charging rate during free power hour (in Amps)
       default: 32
       selector:
         number:
           min: 6
           max: 32
           step: 1
-    min_charging_amps:
-      name: Minimum Charging Amps
-      description: Minimum charging current
-      default: 6
+          unit_of_measurement: A
+    
+    conn_id:
+      name: OCPP Connection ID
+      description: OCPP connection ID for the charger
+      default: 1
       selector:
         number:
-          min: 6
-          max: 16
+          min: 1
+          max: 10
           step: 1
-    voltage:
-      name: Voltage
-      description: Nominal voltage for power calculations
-      default: 230
-      selector:
-        number:
-          min: 220
-          max: 240
-          step: 5
 
-variables:
-  evse_device: !input evse_device
-  evse_entity: !input evse_entity
-  charger_status_entity: !input charger_status_entity
-  charger_transaction_id_entity: !input charger_transaction_id_entity
-  charger_power_entity: !input charger_power_entity
-  grid_power_entity: !input grid_power_entity
-  sun_elevation_entity: !input sun_elevation_entity
-  session_active_boolean: !input session_active_boolean
-  charge_timer_boolean: !input charge_timer_boolean
-  charge_timer_number: !input charge_timer_number
-  mobile_notify_service: !input mobile_notify_service
-  free_power_start_time: !input free_power_start_time
-  free_power_end_time: !input free_power_end_time
-  solar_start_threshold: !input solar_start_threshold
-  solar_stop_threshold: !input solar_stop_threshold
-  solar_buffer: !input solar_buffer
-  max_charging_amps: !input max_charging_amps
-  min_charging_amps: !input min_charging_amps
-  voltage: !input voltage
+alias: Solar Excess EV Charging (Dynamic)
+description: Charge EV with dynamic rate adjustment based on available solar
+mode: single
+trace:
+  stored_traces: 5
 
 trigger:
   - platform: time_pattern
-    seconds: "/30"
-    id: "periodic_check"
-  - platform: sun
-    event: sunrise
-    offset: "+00:30:00"
-    id: "sunrise"
-  - platform: time
-    at: !input free_power_start_time
-    id: "free_power_start"
-  - platform: time
-    at: !input free_power_end_time
-    id: "free_power_end"
+    minutes: "/2"
   - platform: state
     entity_id: !input charger_status_entity
-    to: "Charging"
-    from:
-      - "Available"
-      - "SuspendedEVSE"
-      - "Preparing"
-    id: "charging_started"
   - platform: state
-    entity_id: !input charger_status_entity
-    to: "Available"
-    from:
-      - "Charging"
-      - "SuspendedEVSE"
-      - "Finishing"
-    id: "charging_ended"
-  - platform: state
-    entity_id: !input charger_transaction_id_entity
-    id: "transaction_change"
-  - platform: state
-    entity_id: !input grid_power_entity
-    id: "grid_power_change"
+    entity_id: !input charge_control_switch
+    to: "on"
 
-condition: []
+condition:
+  - condition: template
+    value_template: "{{ states(!input charger_status_entity) in ['Available', 'SuspendedEV', 'SuspendedEVSE', 'Charging', 'Preparing', 'Finishing'] }}"
+  - condition: numeric_state
+    entity_id: !input solar_elevation_entity
+    above: 0
+  - condition: state
+    entity_id: !input charge_control_switch
+    state: "on"
 
 action:
+  - service: logbook.log
+    data:
+      name: Solar EV Charging
+      message: >-
+        Automation triggered - Charger: {{ states(!input charger_status_entity) }},
+        Solar Elevation: {{ states(!input solar_elevation_entity) | float(0) }},
+        Solar Export: {{ states(!input power_export_entity) | float(0) }}W,
+        Charge Control: {{ states(!input charge_control_switch) }}
+
+  - variables:
+      # Basic measurements
+      current_export: "{{ states(!input power_export_entity) | float(0) }}"
+      current_evse_rate: "{{ (states(!input charger_power_entity) | float(0)) * 1000 }}"
+      charger_status: "{{ states(!input charger_status_entity) }}"
+      is_charging: "{{ charger_status == 'Charging' and current_evse_rate >= 1000 }}"
+      current_time: "{{ as_timestamp(now()) }}"
+      
+      # Configuration from inputs
+      min_evse_rate: !input min_evse_rate
+      start_threshold: !input start_threshold
+      rate_increment: !input rate_increment
+      target_buffer: !input target_buffer
+      max_evse_rate: !input max_evse_rate
+      stop_threshold: !input stop_threshold
+      
+      # Time tracking
+      time_since_last_change: "{{ (current_time - as_timestamp(states[!input power_export_entity].last_changed)) | round(0) }}"
+      time_since_rate_change: "{{ (current_time - as_timestamp(states[!input charger_power_entity].last_changed)) | round(0) }}"
+      
+      # Grace periods
+      stability_grace_period: !input stability_grace_period
+      import_grace_period: !input import_grace_period
+      
+      # Power stability check
+      power_stable: "{{ states(!input solar_variance_entity) | float(0) < !input variance_threshold }}"
+      
+      # Calculate available solar power for EV
+      # If exporting: use export value
+      # If importing but charging: current EVSE usage minus import = available solar
+      # If importing and not charging: no solar available
+      available_solar: >-
+        {% if current_export >= 0 %}
+          {{ current_export }}
+        {% elif is_charging %}
+          {{ current_evse_rate + current_export }}
+        {% else %}
+          {{ 0 }}
+        {% endif %}
+      
+      # Calculate optimal charging rate based on available solar
+      # Formula: current_evse_rate + current_export - target_buffer
+      # Works for both increases (export > 0) and decreases (export < 0)
+      optimal_rate: >-
+        {% set target_rate = current_evse_rate + current_export - target_buffer %}
+        {% set rounded_rate = ((target_rate / rate_increment) | round(0, 'floor') * rate_increment) | int %}
+        {{ [[rounded_rate, max_evse_rate] | min, 0] | max }}
+      
+      # Check if we're in grid import tolerance period (fallback only)
+      in_import_grace: >-
+        {{ is_charging and available_solar < stop_threshold and 
+           time_since_rate_change < import_grace_period }}
+
+  - service: logbook.log
+    data:
+      name: Solar EV Charging
+      message: >-
+        DEBUG – Export: {{ current_export }}W, EVSE: {{ current_evse_rate }}W,
+        Available Solar: {{ available_solar }}W, Optimal Rate: {{ optimal_rate }}W,
+        Status: {{ charger_status }}, Is Charging: {{ is_charging }}, 
+        Stable: {{ power_stable }}, In Grace: {{ in_import_grace }},
+        Time since rate change: {{ time_since_rate_change }}s,
+        Min EVSE Rate: {{ min_evse_rate }}W, EVSE < Min: {{ current_evse_rate < min_evse_rate }},
+        Target Rate: {{ available_solar - target_buffer }}W
+
   - choose:
-      # Session Tracking
+      # FREE POWER HOUR - Charge at maximum rate during specified time window
       - conditions:
-          - condition: trigger
-            id: "charging_started"
-        sequence:
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input session_active_boolean
-          - service: logbook.log
-            data:
-              name: "EVSE Session Tracker"
-              message: >-
-                Charging session started - Transaction ID: {{ states(charger_transaction_id_entity) }}
-      
-      - conditions:
-          - condition: trigger
-            id: "charging_ended"
-        sequence:
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input session_active_boolean
-          - service: logbook.log
-            data:
-              name: "EVSE Session Tracker"
-              message: "Charging session ended"
-      
-      # Free Power Period Start
-      - conditions:
-          - condition: trigger
-            id: "free_power_start"
           - condition: template
-            value_template: "{{ not is_state(charger_status_entity, 'Charging') }}"
+            value_template: "{{ !input enable_free_power_hour }}"
+          - condition: template
+            value_template: "{{ charger_status in ['Available', 'SuspendedEV', 'SuspendedEVSE', 'Charging', 'Preparing', 'Finishing'] }}"
+          - condition: time
+            after: !input free_power_start
+            before: !input free_power_end
         sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input evse_entity
-          - service: input_boolean.turn_on
-            target:
-              entity_id: !input session_active_boolean
-          - delay: "00:00:05"
+          - service: logbook.log
+            data:
+              name: Solar EV Charging
+              message: "FREE POWER HOUR – Charging at {{ !input free_power_rate }}A ({{ !input free_power_start }}-{{ !input free_power_end }})"
           - service: ocpp.set_charge_rate
             data:
+              conn_id: !input conn_id
               custom_profile:
-                transactionId: "{{ states(charger_transaction_id_entity) | int }}"
+                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
                 chargingProfileId: 1
                 stackLevel: 2
-                chargingProfilePurpose: "TxProfile"
-                chargingProfileKind: "Relative"
+                chargingProfilePurpose: TxProfile
+                chargingProfileKind: Relative
                 chargingSchedule:
-                  chargingRateUnit: "A"
+                  chargingRateUnit: A
                   chargingSchedulePeriod:
                     - startPeriod: 0
-                      limit: !input max_charging_amps
-              conn_id: 1
+                      limit: !input free_power_rate
+
+      # START CHARGING - Have enough solar and not currently charging
+      - conditions:
+          - condition: template
+            value_template: "{{ not is_charging }}"
+          - condition: template
+            value_template: "{{ charger_status in ['Available', 'SuspendedEV', 'SuspendedEVSE'] }}"
+          - condition: template
+            value_template: "{{ available_solar >= start_threshold }}"
+          - condition: template
+            value_template: "{{ power_stable or time_since_last_change >= stability_grace_period }}"
+        sequence:
           - service: logbook.log
             data:
-              name: "EVSE Free Power Hour"
-              message: "Set charging to maximum {{ max_charging_amps }}A during free power hour"
-      
-      # Free Power Period End
-      - conditions:
-          - condition: trigger
-            id: "free_power_end"
-        sequence:
-          - service: !input mobile_notify_service
+              name: Solar EV Charging
+              message: "START CHARGING – Solar: {{ available_solar }}W, Starting at {{ min_evse_rate }}W"
+          - service: ocpp.set_charge_rate
             data:
-              message: "Set the EVSE to Full Green"
-              title: "Full Green"
-          - condition: device
-            device_id: !input evse_device
-            domain: switch
-            entity_id: !input evse_entity
-            type: is_on
-          - service: switch.turn_off
-            target:
-              entity_id: !input evse_entity
-      
-      # Solar Charging Control
+              conn_id: !input conn_id
+              custom_profile:
+                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                chargingProfileId: 1
+                stackLevel: 2
+                chargingProfilePurpose: TxProfile
+                chargingProfileKind: Relative
+                chargingSchedule:
+                  chargingRateUnit: W
+                  chargingSchedulePeriod:
+                    - startPeriod: 0
+                      limit: "{{ min_evse_rate }}"
+
+      # ADJUST CHARGING RATE - Currently charging, calculate optimal rate
       - conditions:
-          - condition: or
-            conditions:
-              - condition: trigger
-                id: "periodic_check"
-              - condition: trigger
-                id: "sunrise"
-              - condition: trigger
-                id: "grid_power_change"
-          - condition: sun
-            after: sunrise
-            after_offset: "+00:30:00"
-            before: sunset
-            before_offset: "-00:30:00"
-          - condition: state
-            entity_id: !input session_active_boolean
-            state: "on"
           - condition: template
-            value_template: >-
-              {{ states(charger_status_entity) in ['Charging', 'Available'] }}
-          - condition: not
-            conditions:
-              - condition: time
-                after: !input free_power_start_time
-                before: !input free_power_end_time
+            value_template: "{{ is_charging }}"
+          - condition: template
+            value_template: "{{ power_stable or time_since_last_change >= stability_grace_period }}"
         sequence:
           - variables:
-              grid_power: "{{ states(grid_power_entity) | float(0) }}"
-              sun_elevation: "{{ states(sun_elevation_entity) | float(0) }}"
-              is_charging: "{{ states(charger_status_entity) == 'Charging' }}"
-              charger_power: >-
-                {{ states(charger_power_entity) | float(0) if is_charging else 0 }}
-              total_available_power: "{{ grid_power + charger_power }}"
-              usable_power: "{{ total_available_power - solar_buffer if total_available_power > solar_buffer else 0 }}"
-              calculated_amps: "{{ (usable_power / voltage) | round(0) }}"
-              target_amps: >-
-                {% if is_charging %}
-                  {% if total_available_power < solar_stop_threshold %}
-                    0
-                  {% else %}
-                    {{ [[calculated_amps, min_charging_amps] | max, max_charging_amps] | min }}
-                  {% endif %}
+              # Calculate new rate based on available solar
+              # Always use optimal_rate formula: current_evse_rate + export - target_buffer
+              # This works for both export (positive) and import (negative) scenarios
+              new_rate: >-
+                {% set calculated_rate = optimal_rate %}
+                {% if calculated_rate < 0 %}
+                  {{ 0 }}
                 {% else %}
-                  {% if total_available_power < solar_start_threshold %}
-                    0
-                  {% else %}
-                    {{ [[calculated_amps, min_charging_amps] | max, max_charging_amps] | min }}
-                  {% endif %}
+                  {{ calculated_rate }}
                 {% endif %}
+              rate_difference: "{{ (new_rate - current_evse_rate) | abs }}"
+          - choose:
+              # Adjust rate if difference is significant
+              - conditions:
+                  - condition: template
+                    value_template: "{{ rate_difference >= rate_increment or new_rate == 0 }}"
+                sequence:
+                  - service: logbook.log
+                    data:
+                      name: Solar EV Charging
+                      message: >-
+                        ADJUST RATE – From {{ current_evse_rate }}W to {{ new_rate }}W 
+                        (Solar: {{ available_solar }}W, Target Buffer: {{ target_buffer }}W)
+                  - service: ocpp.set_charge_rate
+                    data:
+                      conn_id: !input conn_id
+                      custom_profile:
+                        transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                        chargingProfileId: 1
+                        stackLevel: 2
+                        chargingProfilePurpose: TxProfile
+                        chargingProfileKind: Relative
+                        chargingSchedule:
+                          chargingRateUnit: W
+                          chargingSchedulePeriod:
+                            - startPeriod: 0
+                              limit: "{{ new_rate }}"
+              # No significant change needed
+              - conditions: []
+                sequence:
+                  - service: logbook.log
+                    data:
+                      name: Solar EV Charging
+                      message: "RATE STABLE – Current: {{ current_evse_rate }}W, No adjustment needed"
+
+      # STOP CHARGING - Not enough solar and grace period expired
+      - conditions:
+          - condition: template
+            value_template: "{{ is_charging }}"
+          - condition: template
+            value_template: "{{ available_solar < stop_threshold }}"
+          - condition: template
+            value_template: "{{ not in_import_grace }}"
+          - condition: template
+            value_template: "{{ time_since_last_change >= stability_grace_period }}"
+        sequence:
+          - service: logbook.log
+            data:
+              name: Solar EV Charging
+              message: "STOP CHARGING – Solar: {{ available_solar }}W < {{ stop_threshold }}W, Grace period expired"
           - service: ocpp.set_charge_rate
             data:
+              conn_id: !input conn_id
               custom_profile:
-                transactionId: "{{ states(charger_transaction_id_entity) | int }}"
+                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
                 chargingProfileId: 1
                 stackLevel: 2
-                chargingProfilePurpose: "TxProfile"
-                chargingProfileKind: "Relative"
+                chargingProfilePurpose: TxProfile
+                chargingProfileKind: Relative
                 chargingSchedule:
-                  chargingRateUnit: "A"
+                  chargingRateUnit: W
                   chargingSchedulePeriod:
                     - startPeriod: 0
-                      limit: "{{ target_amps }}"
-              conn_id: 1
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ target_amps == 0 }}"
-                sequence:
-                  - service: logbook.log
-                    data:
-                      name: "EVSE Solar Paused"
-                      message: >-
-                        Charging paused - insufficient solar ({{ grid_power }}W export, 
-                        sun elevation: {{ sun_elevation }}°)
-              - conditions:
-                  - condition: template
-                    value_template: "{{ target_amps > 0 }}"
-                sequence:
-                  - service: logbook.log
-                    data:
-                      name: "EVSE Solar Active"
-                      message: >-
-                        Charging at {{ target_amps }}A ({{ grid_power }}W export,
-                        sun elevation: {{ sun_elevation }}°)
+                      limit: 0
 
-mode: single
+      # GRACE PERIOD - Waiting for stability or import tolerance
+      - conditions: []
+        sequence:
+          - service: logbook.log
+            data:
+              name: Solar EV Charging
+              message: >-
+                WAITING – Solar: {{ available_solar }}W, 
+                Stable: {{ power_stable }}, 
+                Import Grace: {{ in_import_grace }},
+                Time since change: {{ time_since_last_change }}s
