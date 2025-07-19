@@ -72,6 +72,7 @@ You'll need the following entities in your Home Assistant setup:
 7. **Solar Variance Sensor** - Power export variance for stability
    - You may need to create this with a statistics sensor
    - Example: `sensor.solar_export_variance`
+   - See [`sensor setup`](Docs/Solar%20Export%20Standard%20Deviation%20Sensor%20Setup.md)
 
 ## Installation
 
@@ -79,7 +80,7 @@ You'll need the following entities in your Home Assistant setup:
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/mavnz72/ha-blueprint-autel-ocpp/blob/main/Blueprint/EVSE_Solar_and_Free_Power_Charging_Controller.yaml)
 
 ### Method 2: Direct Download
-1. Download the blueprint file: [`solar_ev_charging.yaml`](solar_ev_charging.yaml)
+1. Download the blueprint file: [`EVSE_Solar_and_Free_Power_Charging_Controller.yaml`](Blueprint/EVSE_Solar_and_Free_Power_Charging_Controller.yaml)
 2. Copy it to your Home Assistant `blueprints/automation/` directory
 3. Restart Home Assistant
 4. Go to Settings → Automations & Scenes → Blueprints
