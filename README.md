@@ -21,6 +21,9 @@ A sophisticated Home Assistant blueprint that automatically manages EV charging 
 - Goodwe 6000N Inverter plus power meter
 - OCPP (https://github.com/lbbrhzn/ocpp/blob/main/README.md)
   - 0.7.0
+- BYD Atto 3
+  - Scheduled timer set from 07:00 to 06:55 (next day)
+  - Without a scheduled timer the Atto 3 will go into a deep sleep during a suspended session that the EVSE can't wake it from
 
 ## How It Works
 
