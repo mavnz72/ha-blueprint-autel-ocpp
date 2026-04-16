@@ -215,8 +215,16 @@ trigger:
     to: "on"
 
 condition:
-  - condition: template
-    value_template: "{{ states(!input charger_status_entity) in ['Available', 'SuspendedEV', 'SuspendedEVSE', 'Charging', 'Preparing', 'Finishing'] }}"
+  # FIX 1: Moved entity ID resolution out of {{ }} by using direct entity_id reference
+  - condition: state
+    entity_id: !input charger_status_entity
+    state:
+      - Available
+      - SuspendedEV
+      - SuspendedEVSE
+      - Charging
+      - Preparing
+      - Finishing
   - condition: numeric_state
     entity_id: !input solar_elevation_entity
     above: 0
@@ -225,20 +233,37 @@ condition:
     state: "on"
 
 action:
+  # FIX 2: Resolve all entity !input references to variables before use in templates
+  - variables:
+      charger_status_entity_id: !input charger_status_entity
+      power_export_entity_id: !input power_export_entity
+      charger_power_entity_id: !input charger_power_entity
+      solar_elevation_entity_id: !input solar_elevation_entity
+      solar_variance_entity_id: !input solar_variance_entity
+      charger_transaction_id_entity: !input charger_transaction_id
+      charge_control_switch_id: !input charge_control_switch
+      # Free power hour inputs
+      enable_free_power_hour: !input enable_free_power_hour
+      free_power_rate: !input free_power_rate
+      free_power_start: !input free_power_start
+      free_power_end: !input free_power_end
+      # Numeric config inputs
+      variance_threshold: !input variance_threshold
+
   - service: logbook.log
     data:
       name: Solar EV Charging
       message: >-
-        Automation triggered - Charger: {{ states(!input charger_status_entity) }},
-        Solar Elevation: {{ states(!input solar_elevation_entity) | float(0) }},
-        Solar Export: {{ states(!input power_export_entity) | float(0) }}W,
-        Charge Control: {{ states(!input charge_control_switch) }}
+        Automation triggered - Charger: {{ states(charger_status_entity_id) }},
+        Solar Elevation: {{ states(solar_elevation_entity_id) | float(0) }},
+        Solar Export: {{ states(power_export_entity_id) | float(0) }}W,
+        Charge Control: {{ states(charge_control_switch_id) }}
 
   - variables:
       # Basic measurements
-      current_export: "{{ states(!input power_export_entity) | float(0) }}"
-      current_evse_rate: "{{ (states(!input charger_power_entity) | float(0)) * 1000 }}"
-      charger_status: "{{ states(!input charger_status_entity) }}"
+      current_export: "{{ states(power_export_entity_id) | float(0) }}"
+      current_evse_rate: "{{ (states(charger_power_entity_id) | float(0)) * 1000 }}"
+      charger_status: "{{ states(charger_status_entity_id) }}"
       is_charging: "{{ charger_status == 'Charging' and current_evse_rate >= 1000 }}"
       current_time: "{{ as_timestamp(now()) }}"
       
@@ -250,21 +275,18 @@ action:
       max_evse_rate: !input max_evse_rate
       stop_threshold: !input stop_threshold
       
-      # Time tracking
-      time_since_last_change: "{{ (current_time - as_timestamp(states[!input power_export_entity].last_changed)) | round(0) }}"
-      time_since_rate_change: "{{ (current_time - as_timestamp(states[!input charger_power_entity].last_changed)) | round(0) }}"
+      # FIX 3: Use pre-resolved entity ID variables in states[] lookup
+      time_since_last_change: "{{ (current_time - as_timestamp(states[power_export_entity_id].last_changed)) | round(0) }}"
+      time_since_rate_change: "{{ (current_time - as_timestamp(states[charger_power_entity_id].last_changed)) | round(0) }}"
       
       # Grace periods
       stability_grace_period: !input stability_grace_period
       import_grace_period: !input import_grace_period
       
-      # Power stability check
-      power_stable: "{{ states(!input solar_variance_entity) | float(0) < !input variance_threshold }}"
+      # FIX 4: Use pre-resolved entity ID and variance_threshold variable
+      power_stable: "{{ states(solar_variance_entity_id) | float(0) < variance_threshold }}"
       
       # Calculate available solar power for EV
-      # If exporting: use export value
-      # If importing but charging: current EVSE usage minus import = available solar
-      # If importing and not charging: no solar available
       available_solar: >-
         {% if current_export >= 0 %}
           {{ current_export }}
@@ -275,14 +297,12 @@ action:
         {% endif %}
       
       # Calculate optimal charging rate based on available solar
-      # Formula: current_evse_rate + current_export - target_buffer
-      # Works for both increases (export > 0) and decreases (export < 0)
       optimal_rate: >-
         {% set target_rate = current_evse_rate + current_export - target_buffer %}
         {% set rounded_rate = ((target_rate / rate_increment) | round(0, 'floor') * rate_increment) | int %}
         {{ [[rounded_rate, max_evse_rate] | min, 0] | max }}
       
-      # Check if we're in grid import tolerance period (fallback only)
+      # Check if we're in grid import tolerance period
       in_import_grace: >-
         {{ is_charging and available_solar < stop_threshold and 
            time_since_rate_change < import_grace_period }}
@@ -302,8 +322,9 @@ action:
   - choose:
       # FREE POWER HOUR - Charge at maximum rate during specified time window
       - conditions:
+          # FIX 5: Use pre-resolved variable instead of !input inside {{ }}
           - condition: template
-            value_template: "{{ !input enable_free_power_hour }}"
+            value_template: "{{ enable_free_power_hour }}"
           - condition: template
             value_template: "{{ charger_status in ['Available', 'SuspendedEV', 'SuspendedEVSE', 'Charging', 'Preparing', 'Finishing'] }}"
           - condition: time
@@ -313,12 +334,14 @@ action:
           - service: logbook.log
             data:
               name: Solar EV Charging
-              message: "FREE POWER HOUR – Charging at {{ !input free_power_rate }}A ({{ !input free_power_start }}-{{ !input free_power_end }})"
+              # FIX 6: Use pre-resolved variables instead of !input inside {{ }}
+              message: "FREE POWER HOUR – Charging at {{ free_power_rate }}A ({{ free_power_start }}-{{ free_power_end }})"
           - service: ocpp.set_charge_rate
             data:
               conn_id: !input conn_id
               custom_profile:
-                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                # FIX 7: Use pre-resolved entity ID variable in transactionId template
+                transactionId: "{{ states(charger_transaction_id_entity) | int(0) }}"
                 chargingProfileId: 1
                 stackLevel: 2
                 chargingProfilePurpose: TxProfile
@@ -348,7 +371,8 @@ action:
             data:
               conn_id: !input conn_id
               custom_profile:
-                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                # FIX 8: Use pre-resolved entity ID variable in transactionId template
+                transactionId: "{{ states(charger_transaction_id_entity) | int(0) }}"
                 chargingProfileId: 1
                 stackLevel: 2
                 chargingProfilePurpose: TxProfile
@@ -367,9 +391,6 @@ action:
             value_template: "{{ power_stable or time_since_last_change >= stability_grace_period }}"
         sequence:
           - variables:
-              # Calculate new rate based on available solar
-              # Always use optimal_rate formula: current_evse_rate + export - target_buffer
-              # This works for both export (positive) and import (negative) scenarios
               new_rate: >-
                 {% set calculated_rate = optimal_rate %}
                 {% if calculated_rate < 0 %}
@@ -394,7 +415,8 @@ action:
                     data:
                       conn_id: !input conn_id
                       custom_profile:
-                        transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                        # FIX 9: Use pre-resolved entity ID variable in transactionId template
+                        transactionId: "{{ states(charger_transaction_id_entity) | int(0) }}"
                         chargingProfileId: 1
                         stackLevel: 2
                         chargingProfilePurpose: TxProfile
@@ -431,7 +453,8 @@ action:
             data:
               conn_id: !input conn_id
               custom_profile:
-                transactionId: "{{ states(!input charger_transaction_id) | int(0) }}"
+                # FIX 10: Use pre-resolved entity ID variable in transactionId template
+                transactionId: "{{ states(charger_transaction_id_entity) | int(0) }}"
                 chargingProfileId: 1
                 stackLevel: 2
                 chargingProfilePurpose: TxProfile
